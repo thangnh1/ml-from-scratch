@@ -83,9 +83,9 @@ class LogisticRegressionAdvanced:
             return cost + l1_term + l2_term
         return cost
 
-    def _compute_cost_binary(self, X, y, weights):
+    def _compute_cost_binary(self, X, y, weights): # tinh cost (loss)
         """Compute logistic loss for binary classification"""
-        z = X @ weights # @ == np.dot
+        z = X @ weights # @ == np.dot: logit score
         h = self._sigmoid(z)
 
         # Clip predictions to prevent log(0)
@@ -109,13 +109,13 @@ class LogisticRegressionAdvanced:
 
         # Weighted gradient
         error = h - y
-        gradient = (1 / len(X)) * X.T @ (error * self.sample_weights_)
+        gradient = (1 / len(X)) * X.T @ (error * self.sample_weights_) # cong thuc tinh vector gradient
 
         # Add regularization gradient
         if self.regularization == 'l1':
             # L1: gradient = λ * sign(w), but don't regularize bias
-            reg_grad = np.zeros_like(weights)
-            reg_grad[1:] = self.lambda_reg * np.sign(weights[1:])
+            reg_grad = np.zeros_like(weights) # tạo vector toàn phần tử 0 để tính toán và cộng vào gradient
+            reg_grad[1:] = self.lambda_reg * np.sign(weights[1:]) # áp dụng regularzation với những phần từ từ 1 trở đi
             gradient += reg_grad
         elif self.regularization == 'l2':
             # L2: gradient = λ * w, but don't regularize bias
@@ -125,42 +125,51 @@ class LogisticRegressionAdvanced:
 
         return gradient
 
-    def _fit_binary(self, X, y):
+    def _fit_binary(self, X, y): # gọi function này nếu chỉ có 2 class
         """Fit binary logistic regression"""
         # Add intercept term
         X_with_intercept = np.column_stack([np.ones(X.shape[0]), X])
         n_features = X_with_intercept.shape[1]
 
         # Initialize weights
+        # khởi tạo vector trọng số có mean = 0, std = 0.01
+        # nếu vector có mọi w = 0 thì mô hình không phân biệt được feature nào quan trọng hơn -> học(hội tụ) chậm hoặc không học được gì
+        # nếu tạo vector này có w quá lớn -> sigmoid làm nó xấp xỉ 0 -> vanishing gradient -> hội tụ quá chậm
+        # giải pháp tạo ngẫu nhiên quanh giá trị 0 -> do đạo hàm sigmoid đạt cực đại 0.25 tại z = 0, sigmoid trong vùng dốc nhất (0.25)
         weights = np.random.normal(0, 0.01, n_features)
 
-        # Compute sample weights for class imbalance
+        # Tính weights cho mất cân bằng lớp nếu có tồn tại, lớp thiểu số sẽ có w cao hơn
         self.sample_weights_ = self._compute_sample_weights(y)
 
         if self.solver == 'gradient_descent':
             # Gradient descent optimization
             for iteration in range(self.max_iter):
+                # Tính cost
                 cost = self._compute_cost_binary(X_with_intercept, y, weights)
-                gradient = self._compute_gradient_binary(X_with_intercept, y, weights)
+                # Tính đạo hàm gradient từng biến
+                gradient = self._compute_gradient_binary(X_with_intercept, y, weights) # vector
 
-                # Update weights
+                # Cập nhật weights
                 weights -= self.learning_rate * gradient
 
+                # Lưu lịch sử cost
                 self.cost_history_.append(cost)
 
                 # Check convergence
                 if len(self.cost_history_) > 1:
-                    if abs(self.cost_history_[-2] - self.cost_history_[-1]) < 1e-6:
+                    if abs(self.cost_history_[-2] - self.cost_history_[-1]) < 1e-6: # nếu giữa 2 giá trị liên tiếp < 1e-6 -> hội tụ -> dừng
                         break
 
         elif self.solver == 'lbfgs':
             # Use scipy optimization
-            def cost_function(w):
+            def cost_function(w): # tính cost
                 return self._compute_cost_binary(X_with_intercept, y, w)
 
-            def gradient_function(w):
+            def gradient_function(w): # tính vector gradient
                 return self._compute_gradient_binary(X_with_intercept, y, w)
 
+            # hoạt động bằng cách xem hướng gradient, tính độ cong tại vector này
+            # từ đó tính ra bước đi tối ưu, sau đó áp bound để tìm ra y mới, sau đó lại lặp lại
             result = minimize(
                 cost_function, weights, method='L-BFGS-B',
                 jac=gradient_function, options={'maxiter': self.max_iter}
@@ -174,6 +183,8 @@ class LogisticRegressionAdvanced:
         return self
 
     def _one_hot_encode(self, y):
+        # biến đổi nhãn cho bài toán multi class
+        # so sánh nhãn dự đoán với ground truth
         """Convert labels to one-hot encoding"""
         n_samples = len(y)
         n_classes = len(self.classes_)
@@ -188,47 +199,48 @@ class LogisticRegressionAdvanced:
         X_with_intercept = np.column_stack([np.ones(X.shape[0]), X])
         n_samples, n_features = X_with_intercept.shape
 
-        # Initialize weights matrix: (n_features, n_classes)
+        # Khởi tạo ma trận trọng số mô hình w: (n_features, n_classes)
         weights_matrix = np.random.normal(0, 0.01, (n_features, self.n_classes_))
 
         # One-hot encode labels
-        y_onehot = self._one_hot_encode(y)
+        y_onehot = self._one_hot_encode(y) # mã hoá lable thành vector onehot
 
-        # Compute sample weights
+        # tính trọng số cho từng lớp
         self.sample_weights_ = self._compute_sample_weights(y)
 
         for iteration in range(self.max_iter):
-            # Forward pass
+            # Tính xác suất dự đoán cho từng class
             z = X_with_intercept @ weights_matrix  # (n_samples, n_classes)
             probabilities = self._softmax(z)
 
-            # Compute cost (cross-entropy)
+            # Tính cost function (cross-entropy)
             probabilities = np.clip(probabilities, 1e-15, 1 - 1e-15)
             cost = -np.average(
                 np.sum(y_onehot * np.log(probabilities), axis=1),
                 weights=self.sample_weights_
             )
 
-            # Add regularization
+            # Thêm regularization nếu coá cho cost
             if self.regularization == 'l2':
                 cost += self.lambda_reg * 0.5 * np.sum(weights_matrix[1:] ** 2)
 
+            # lưu lịch sử cost
             self.cost_history_.append(cost)
 
-            # Compute gradient
+            # Tính gradient matrix
             error = probabilities - y_onehot  # (n_samples, n_classes)
             gradient = (1 / n_samples) * X_with_intercept.T @ (error * self.sample_weights_[:, np.newaxis])
 
-            # Add regularization gradient
+            # thêm regularization cho gradient
             if self.regularization == 'l2':
                 reg_grad = np.zeros_like(weights_matrix)
                 reg_grad[1:] = self.lambda_reg * weights_matrix[1:]
                 gradient += reg_grad
 
-            # Update weights
+            # cập nhật weights
             weights_matrix -= self.learning_rate * gradient
 
-            # Check convergence
+            # kiểm tra độ hội tụ
             if len(self.cost_history_) > 1:
                 if abs(self.cost_history_[-2] - self.cost_history_[-1]) < 1e-6:
                     break
@@ -621,89 +633,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# =============================================================================
-# INTERVIEW QUESTIONS FOR DAY 2:
-# =============================================================================
-
-"""
-🎯 INTERVIEW QUESTIONS FOR DAY 2:
-
-1. SIGMOID FUNCTION INTUITION:
-   Q: "Why use sigmoid instead of linear function for classification?"
-   A: Sigmoid maps any real number to (0,1), representing probability.
-      Linear function can output values outside [0,1].
-
-2. ODDS RATIO INTERPRETATION:
-   Q: "Coefficient β=0.693. How do you interpret this?"
-   A: exp(0.693) ≈ 2. One unit increase in feature doubles the odds of positive class.
-
-3. IMBALANCED DATASETS:
-   Q: "Dataset has 95% negative, 5% positive class. Model achieves 95% accuracy. Good?"
-   A: No! Model could predict all negative. Check precision, recall, F1, ROC-AUC.
-
-4. PRECISION vs RECALL TRADEOFF:
-   Q: "Medical diagnosis: prefer high precision or recall?"
-   A: High recall (minimize false negatives - don't miss diseases)
-      Fraud detection: High precision (minimize false positives - don't block good users)
-
-5. ROC vs PR CURVES:
-   Q: "When to use ROC-AUC vs PR-AUC?"
-   A: ROC-AUC for balanced datasets. PR-AUC for imbalanced (focuses on positive class).
-
-6. MULTICLASS EXTENSION:
-   Q: "How does logistic regression handle multiclass classification?"
-   A: Two approaches: 
-      - One-vs-Rest: Train binary classifier for each class
-      - Softmax: Generalize sigmoid to multiple classes simultaneously
-
-7. GRADIENT COMPUTATION:
-   Q: "Derive gradient for logistic regression"
-   A: ∇J = (1/m) * X^T * (h - y), where h = sigmoid(X*θ)
-      Same form as linear regression, but h is sigmoid instead of linear
-
-8. REGULARIZATION NECESSITY:
-   Q: "Why might you need regularization in logistic regression?"
-   A: High-dimensional data, multicollinearity, overfitting
-      L1 (Lasso): Feature selection, sparse solutions
-      L2 (Ridge): Shrinkage, handles multicollinearity
-
-9. CLASS IMBALANCE SOLUTIONS:
-   Q: "5 ways to handle imbalanced datasets"
-   A: 1) Class weights, 2) SMOTE/oversampling, 3) Undersampling majority
-      4) Cost-sensitive learning, 5) Threshold tuning
-
-10. CONVERGENCE ISSUES:
-    Q: "Logistic regression not converging. Possible causes?"
-    A: Perfect separation, multicollinearity, learning rate too high,
-       outliers, need feature scaling
-
-PRACTICAL SCENARIOS:
-
-Scenario 1: "Email spam detection - 99% not spam, 1% spam"
-- Use class_weight='balanced' or custom weights
-- Focus on recall (don't miss spam) but maintain reasonable precision
-- Consider cost of false positives vs false negatives
-
-Scenario 2: "Medical diagnosis model shows 95% accuracy but doctors complain"
-- Likely high specificity, low sensitivity
-- Check confusion matrix, precision/recall per class
-- Adjust threshold or use balanced datasets
-
-Scenario 3: "Model works in training but fails in production"
-- Data drift: feature distributions changed
-- Class distribution shift
-- Need monitoring and retraining pipeline
-
-CODING CHALLENGES:
-- Implement L1 regularization (coordinate descent)
-- Add momentum to gradient descent
-- Implement one-vs-rest multiclass manually
-- Handle categorical features with target encoding
-- Build ROC curve from scratch without sklearn
-
-MATHEMATICAL UNDERSTANDING:
-- Derive why cross-entropy is natural loss for classification
-- Understand connection between logistic regression and neural networks
-- Explain why we use log-odds (logits) instead of direct probabilities
-"""
